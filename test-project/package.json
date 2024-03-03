@@ -25,7 +25,8 @@
     "@evidence-dev/postgres": "^1.0.1",
     "@evidence-dev/snowflake": "^1.0.1",
     "@evidence-dev/sqlite": "^2.0.1",
-    "@evidence-dev/trino": "^1.0.1"
+    "@evidence-dev/trino": "^1.0.1",
+    "evidence-connector-mssql": "file:../datasource"
   },
   "overrides": {
     "jsonwebtoken": "9.0.0",

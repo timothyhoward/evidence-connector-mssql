@@ -1,28 +1,29 @@
 {
-  "name": "evidence-connector-my-datasource",
+  "name": "evidence-connector-mssql",
   "version": "1.0.0",
   "description": "",
-  "main": "src/index.js",
+  "main": "src/index.cjs",
   "type": "module",
-  "scripts": {
-    "test": "vitest --run",
-    "check": "tsc --noEmit -p tsconfig.json"
-  },
-  "author": "",
+  "author": "Tim Howard",
   "license": "ISC",
   "devDependencies": {
     "@evidence-dev/plugin-connector": "^2.0.4",
-    "typescript": "^5.3.3",
-    "vitest": "^1.2.0"
+    "dotenv": "^16.0.1"
   },
   "dependencies": {
-    "@evidence-dev/db-commons": "^1.0.1"
+    "@evidence-dev/db-commons": "^1.0.1",
+    "@types/mssql": "^8.1.2",
+    "mssql": "^9.1.1"
   },
   "evidence": {
-    "datasources": []
+    "datasources": [
+      "azuremssql"
+    ],
+    "icon": "Microsoftsqlserver"
   },
   "keywords": [
     "evidence",
-    "evidence-datasource"
+    "evidence-datasource",
+    "mssql"
   ]
 }

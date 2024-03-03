@@ -38,3 +38,4 @@ datasources:
   "@evidence-dev/snowflake": {}
   "@evidence-dev/sqlite": {}
   "@evidence-dev/trino": {}
+  "evidence-connector-mssql": {}
