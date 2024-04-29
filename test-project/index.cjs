@@ -83,6 +83,9 @@ const mapResultsToEvidenceColumnTypes = function (fields) {
 	});
 };
 
+
+
+
 function getAuthenticationMethod (database, authtype) {
 	var authentication_method = authtype;
 
@@ -91,10 +94,10 @@ function getAuthenticationMethod (database, authtype) {
 			authentication: {
 				type: 'azure-active-directory-password',
 				options: {
-					"userName": database.pwuname,
-					"password": database.pwpword,
-					"clientId": database.pwclientid,
-					"tenantId": database.pwtenantid
+					"userName": database.authenticator.pwuname,
+					"password": database.authenticator.pwpword,
+					"clientId": database.authenticator.pwclientid,
+					"tenantId": database.authenticator.pwtenantid
 				}
 			},
 			server: database.server,
@@ -111,7 +114,7 @@ function getAuthenticationMethod (database, authtype) {
 			authentication: {
 				type: 'azure-active-directory-access-token',
 				options: {
-					"token": database.attoken
+					"token": database.authenticator.attoken
 				}
 			},
 			server: database.server,
@@ -128,9 +131,9 @@ function getAuthenticationMethod (database, authtype) {
 			authentication: {
 				type: 'azure-active-directory-service-principal-secret',
 				options: {
-					"clientId": database.spclientid,
-					"clientSecret": database.spclientsecret,
-					"tenantId": database.sptenantid
+					"clientId": database.authentication.spclientid,
+					"clientSecret": database.authentication.spclientsecret,
+					"tenantId": database.authentication.sptenantid
 				}
 			},
 			server: database.server,
@@ -161,12 +164,16 @@ function getAuthenticationMethod (database, authtype) {
 /** @type {import("@evidence-dev/db-commons").RunQuery<MsSQLOptions>} */
 const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 	try {
-		/* Parse authentication type and construct credentials string */
-		const authtype = database.authenticator ?? 'aadaccesstoken';
-		const credentials = getAuthenticationMethod(database, authtype)
+		const trust_server_certificate = database.trust_server_certificate ?? 'false';
+		const encrypt = database.encrypt ?? 'true';
+		const authtype = database._authenticator ?? 'aadaccesstoken';
 
-		/* Connect to the SQL endpoint */
+		const credentials = getAuthenticationMethod(database, authtype)
+		
+		console.log(credentials)
+
 		const pool = await mssql.connect(credentials);
+
 		const cleaned_string = cleanQuery(queryString);
 		const expected_count = await pool
 			.request()
@@ -191,6 +198,7 @@ const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 	} catch (err) {
 		if (err.message) {
 			console.log(err.message)
+			/*console.log(debug)*/
 			throw err.message.replace(/\n|\r/g, ' ');
 		} else {
 			console.log(err)
@@ -205,6 +213,9 @@ module.exports = runQuery;
  * @typedef {Object} MsSQLOptions
  * @property {string} host
  * @property {string} database
+ * @property {string} _authenticator
+ * @property {string} defaultclientid
+ * @property {string} defaulttoken
  * @property {string} pwuname
  * @property {string} pwpname
  * @property {string} pwclientid
@@ -240,17 +251,21 @@ module.exports.options = {
 		title: 'Authentication Method',
 		type: 'select',
 		secret: false,
-		nest: false,
+		nest: true,
 		required: true,
 		default: 'aadaccesstoken',
 		options: [
 			{
-				value: 'aadaccesstoken',
-				label: 'Access Token'
+				value: 'aaddefault',
+				label: 'Default'
 			},
 			{
 				value: 'aadpassword',
 				label: 'Password'
+			},
+			{
+				value: 'aadaccesstoken',
+				label: 'Access Token'
 			},
 			{
 				value: 'aadserviceprincipal',
@@ -258,6 +273,20 @@ module.exports.options = {
 			}
 		],
 		children: {
+			'aaddefault': {
+				defaultclientid: {
+					title: 'Client ID',
+					type: 'string',
+					secret: true,
+					required: false
+				},
+				defaulttoken: {
+					title: 'Token',
+					type: 'string',
+					secret: true,
+					required: false
+				}
+			},
 			'aadpassword': {
 				pwuname: {
 					title: 'User',

@@ -69,3 +69,6 @@ Typescript has also been included with a basic configuration, and your types can
 4. Use `npm run sources` in the test project to execute your datasource, and modify [`index.md`](./test-project/pages/index.md) to use your new source.
    1. It can also be helpful to referenecs the [`schema explorer`](http://localhost:3000/explore/schema) to make sure that the types returned  
      by your connector match what you are expecting.
+
+# Development Quick Start
+1. Run `npm install` in `datasource` and `test-project` directories

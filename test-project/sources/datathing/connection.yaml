@@ -1,8 +1,0 @@
-# This file was automatically generated
-name: datathing
-type: azuremssql
-options:
-  server: datathingdev-ondemand.sql.azuresynapse.net
-  database: dt_enriched
-  trust_server_certificate: true
-  encrypt: true

@@ -1,19 +1,19 @@
 {
-  "name": "evidence-connector-mssql",
-  "version": "1.0.0",
-  "description": "",
+  "name": "@timhoward/evidence-connector-mssql",
+  "version": "1.0.1",
+  "description": "Connects Evidence with Microsoft Azure SQL endpoints",
   "main": "src/index.cjs",
   "type": "module",
-  "author": "Tim Howard",
+  "author": "Tim Howard <timothyhoward@outlook.com>",
   "license": "ISC",
   "devDependencies": {
     "@evidence-dev/plugin-connector": "^2.0.4",
     "dotenv": "^16.0.1"
   },
   "dependencies": {
-    "@evidence-dev/db-commons": "^1.0.1",
-    "@types/mssql": "^8.1.2",
-    "mssql": "^9.1.1"
+    "@evidence-dev/db-commons": "^1.0.4",
+    "@types/mssql": "^9.1.5",
+    "mssql": "^10.0.2"
   },
   "evidence": {
     "datasources": [
@@ -21,9 +21,20 @@
     ],
     "icon": "Microsoftsqlserver"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timothyhoward/evidence-connector-mssql.git"
+  },
+  "bugs": {
+    "url": "https://github.com/timothyhoward/evidence-connector-mssql/issues"
+  },
+  "homepage": "https://github.com/timothyhoward/evidence-connector-mssql",
   "keywords": [
     "evidence",
     "evidence-datasource",
     "mssql"
-  ]
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
 }
