@@ -142,7 +142,7 @@ function getAuthenticationMethod (database, authtype) {
 			}
 		};
 	}
-	else {
+	else if (authentication_method === 'aaddefault') {
 		return {
 			authentication: {
 				type: 'azure-active-directory-default'
@@ -255,6 +255,10 @@ module.exports.options = {
 			{
 				value: 'aadserviceprincipal',
 				label: 'Service Principal Secret'
+			},
+			{
+				value: 'aaddefault',
+				label: 'Entra ID'
 			}
 		],
 		children: {
@@ -311,7 +315,8 @@ module.exports.options = {
 					secret: true,
 					required: true
 				}
-			}
+			},
+			'aaddefault': {}
 		}
 	},
 	server: {
