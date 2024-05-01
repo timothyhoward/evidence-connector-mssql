@@ -83,8 +83,18 @@ const mapResultsToEvidenceColumnTypes = function (fields) {
 	});
 };
 
-function getAuthenticationMethod (database, authtype) {
-	var authentication_method = authtype;
+function getAuthenticationMethod (database) {
+	const trust_server_certificate = database.trust_server_certificate ?? 'false';
+	const encrypt = database.encrypt ?? 'true';
+
+	port = parseInt(database.port ?? 1433);
+	options = {
+		trustServerCertificate:
+			trust_server_certificate === 'true' || trust_server_certificate === true,
+		encrypt: encrypt === 'true' || encrypt === true
+	};
+	
+	var authentication_method = database.authenticator;
 
 	if (authentication_method === 'aadpassword') {
 		return {
@@ -99,11 +109,7 @@ function getAuthenticationMethod (database, authtype) {
 			},
 			server: database.server,
 			database: database.database,
-			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
-			}
+			options: options
 		};
 	}
 	else if (authentication_method === 'aadaccesstoken'){
@@ -116,11 +122,7 @@ function getAuthenticationMethod (database, authtype) {
 			},
 			server: database.server,
 			database: database.database,
-			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
-			}
+			options: options
 		};
 	}
 	else if (authentication_method === 'aadserviceprincipal'){
@@ -135,25 +137,17 @@ function getAuthenticationMethod (database, authtype) {
 			},
 			server: database.server,
 			database: database.database,
-			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
-			}
+			options: options
 		};
 	}
-	else {
+	else if (authentication_method === 'aaddefault') {
 		return {
 			authentication: {
 				type: 'azure-active-directory-default'
 			},
 			server: database.server,
 			database: database.database,
-			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
-			}
+			options: options
 		};
 	}
 };
@@ -162,8 +156,7 @@ function getAuthenticationMethod (database, authtype) {
 const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 	try {
 		/* Parse authentication type and construct credentials string */
-		const authtype = database.authenticator ?? 'aadaccesstoken';
-		const credentials = getAuthenticationMethod(database, authtype)
+		const credentials = getAuthenticationMethod(database)
 
 		/* Connect to the SQL endpoint */
 		const pool = await mssql.connect(credentials);
@@ -255,6 +248,10 @@ module.exports.options = {
 			{
 				value: 'aadserviceprincipal',
 				label: 'Service Principal Secret'
+			},
+			{
+				value: 'aaddefault',
+				label: 'Entra ID'
 			}
 		],
 		children: {
@@ -311,7 +308,8 @@ module.exports.options = {
 					secret: true,
 					required: true
 				}
-			}
+			},
+			'aaddefault': {}
 		}
 	},
 	server: {
