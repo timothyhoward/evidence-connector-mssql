@@ -18,8 +18,7 @@
   "evidence": {
     "datasources": [
       "azuremssql"
-    ],
-    "icon": "Microsoftsqlserver"
+    ]
   },
   "repository": {
     "type": "git",
