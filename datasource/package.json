@@ -1,6 +1,6 @@
 {
   "name": "@timhoward/evidence-connector-mssql",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Connects Evidence with Microsoft Azure SQL endpoints",
   "main": "src/index.cjs",
   "type": "module",
@@ -11,15 +11,14 @@
     "dotenv": "^16.0.1"
   },
   "dependencies": {
-    "@evidence-dev/db-commons": "^1.0.4",
+    "@evidence-dev/db-commons": "^1.0.5",
     "@types/mssql": "^9.1.5",
-    "mssql": "^10.0.2"
+    "mssql": "^11.0.1"
   },
   "evidence": {
     "datasources": [
       "azuremssql"
-    ],
-    "icon": "Microsoftsqlserver"
+    ]
   },
   "repository": {
     "type": "git",
