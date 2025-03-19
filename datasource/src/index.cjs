@@ -83,90 +83,70 @@ const mapResultsToEvidenceColumnTypes = function (fields) {
 	});
 };
 
-function getAuthenticationMethod (database, authtype) {
-	var authentication_method = authtype;
+const buildConfig = function (database) {
+	const trust_server_certificate = database.trust_server_certificate ?? 'false';
+	const encrypt = database.encrypt ?? 'true';
+	const connection_timeout = database.connection_timeout ?? 15000;
+	const request_timeout = database.request_timeout ?? 15000;
 
-	if (authentication_method === 'aadpassword') {
-		return {
-			authentication: {
-				type: 'azure-active-directory-password',
-				options: {
-					"userName": database.pwuname,
-					"password": database.pwpword,
-					"clientId": database.pwclientid,
-					"tenantId": database.pwtenantid
-				}
-			},
-			server: database.server,
-			database: database.database,
+	const credentials = {
+		user: database.user,
+		server: database.server,
+		database: database.database,
+		password: database.password,
+		port: parseInt(database.port ?? 1433),
+		connectionTimeout: parseInt(connection_timeout),
+		requestTimeout: parseInt(request_timeout),
+		options: {
+			trustServerCertificate:
+				trust_server_certificate === 'true' || trust_server_certificate === true,
+			encrypt: encrypt === 'true' || encrypt === true
+		}
+	};
+
+	if (database.authenticationType === 'azure-active-directory-default') {
+		credentials.authentication = {
+			type: 'azure-active-directory-default'
+		};
+		return credentials;
+	} else if (database.authenticationType === 'azure-active-directory-access-token') {
+		credentials.authentication = {
+			type: 'azure-active-directory-access-token',
 			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
+				token: database.attoken
 			}
 		};
-	}
-	else if (authentication_method === 'aadaccesstoken'){
-		return {
-			authentication: {
-				type: 'azure-active-directory-access-token',
-				options: {
-					"token": database.attoken
-				}
-			},
-			server: database.server,
-			database: database.database,
+		return credentials;
+	} else if (database.authenticationType === 'azure-active-directory-password') {
+		credentials.authentication = {
+			type: 'azure-active-directory-password',
 			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
+				userName: database.pwuname,
+				password: database.pwpword,
+				clientId: database.pwclientid,
+				tenantId: database.pwtenantid
 			}
 		};
-	}
-	else if (authentication_method === 'aadserviceprincipal'){
-		return {
-			authentication: {
-				type: 'azure-active-directory-service-principal-secret',
-				options: {
-					"clientId": database.spclientid,
-					"clientSecret": database.spclientsecret,
-					"tenantId": database.sptenantid
-				}
-			},
-			server: database.server,
-			database: database.database,
+		return credentials;
+	} else if (database.authenticationType === 'azure-active-directory-service-principal-secret') {
+		credentials.authentication = {
+			type: 'azure-active-directory-service-principal-secret',
 			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
+				clientId: database.spclientid,
+				clientSecret: database.spclientsecret,
+				tenantId: database.sptenantid
 			}
 		};
-	}
-	else if (authentication_method === 'aaddefault') {
-		return {
-			authentication: {
-				type: 'azure-active-directory-default'
-			},
-			server: database.server,
-			database: database.database,
-			options: {
-				trustServerCertificate: true,
-				port: parseInt(database.port ?? 1433),
-				encrypt: true
-			}
-		};
+		return credentials;
 	}
 };
 
 /** @type {import("@evidence-dev/db-commons").RunQuery<MsSQLOptions>} */
 const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 	try {
-		/* Parse authentication type and construct credentials string */
-		const authtype = database.authenticator ?? 'aadaccesstoken';
-		const credentials = getAuthenticationMethod(database, authtype)
+		const config = buildConfig(database);
+		const pool = await mssql.connect(config);
 
-		/* Connect to the SQL endpoint */
-		const pool = await mssql.connect(credentials);
 		const cleaned_string = cleanQuery(queryString);
 		const expected_count = await pool
 			.request()
@@ -190,11 +170,9 @@ const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 		return results;
 	} catch (err) {
 		if (err.message) {
-			console.log(err.message)
 			throw err.message.replace(/\n|\r/g, ' ');
 		} else {
-			console.log(err)
-			/*throw err.replace(/\n|\r/g, ' ');*/
+			throw err.replace(/\n|\r/g, ' ');
 		}
 	}
 };
@@ -203,19 +181,14 @@ module.exports = runQuery;
 
 /**
  * @typedef {Object} MsSQLOptions
+ * @property {string} user
  * @property {string} host
  * @property {string} database
- * @property {string} pwuname
- * @property {string} pwpname
- * @property {string} pwclientid
- * @property {string} pwtenantid
- * @property {string} attoken
- * @property {string} spclientid
- * @property {string} spclientsecret
- * @property {string} sptenantid
+ * @property {string} password
  * @property {`${number}`} port
  * @property {`${boolean}`} trust_server_certificate
  * @property {`${boolean}`} encrypt
+ * @property {`${number}`} connection_timeout
  */
 
 /** @type {import('@evidence-dev/db-commons').GetRunner<MsSQLOptions>} */
@@ -237,32 +210,41 @@ module.exports.testConnection = async (opts) => {
 
 module.exports.options = {
 	authenticator: {
-		title: 'Authentication Method',
+		title: 'Authentication type',
 		type: 'select',
 		secret: false,
 		nest: false,
 		required: true,
-		default: 'aadaccesstoken',
+		default: 'azure-active-directory-default',
 		options: [
 			{
-				value: 'aadaccesstoken',
-				label: 'Access Token'
+				value: 'azure-active-directory-default',
+				label: 'DefaultAzureCredential'
 			},
 			{
-				value: 'aadpassword',
-				label: 'Password'
+				value: 'azure-active-directory-access-token',
+				label: 'Access token'
 			},
 			{
-				value: 'aadserviceprincipal',
+				value: 'azure-active-directory-password',
+				label: 'Entra ID User/Password'
+			},
+			{
+				value: 'azure-active-directory-service-principal-secret',
 				label: 'Service Principal Secret'
-			},
-			{
-				value: 'aaddefault',
-				label: 'Automatic'
 			}
 		],
 		children: {
-			'aadpassword': {
+			'azure-active-directory-default': {},
+			'azure-active-directory-access-token': {
+				attoken: {
+					title: 'Access Token',
+					type: 'string',
+					secret: true,
+					required: true
+				}
+			},
+			'azure-active-directory-password': {
 				pwuname: {
 					title: 'User',
 					type: 'string',
@@ -288,15 +270,7 @@ module.exports.options = {
 					required: true
 				}
 			},
-			'aadaccesstoken': {
-				attoken: {
-					title: 'Access Token',
-					type: 'string',
-					secret: true,
-					required: true
-				}
-			},
-			'aadserviceprincipal': {
+			'azure-active-directory-service-principal-secret': {
 				spclientid: {
 					title: 'Client ID',
 					type: 'string',
@@ -349,5 +323,19 @@ module.exports.options = {
 		type: 'boolean',
 		default: false,
 		description: 'Should be true when using azure'
+	},
+	connection_timeout: {
+		title: 'Connection Timeout',
+		secret: false,
+		type: 'number',
+		required: false,
+		description: 'Connection timeout in ms'
+	},
+	request_timeout: {
+		title: 'Request Timeout',
+		secret: false,
+		type: 'number',
+		required: false,
+		description: 'Request timeout in ms'
 	}
-};
+}
