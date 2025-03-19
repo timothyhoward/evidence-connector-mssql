@@ -1,6 +1,6 @@
 {
   "name": "@timhoward/evidence-connector-mssql",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Connects Evidence with Microsoft Azure SQL endpoints",
   "main": "src/index.cjs",
   "type": "module",

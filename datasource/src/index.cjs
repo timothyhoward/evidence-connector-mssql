@@ -84,22 +84,26 @@ const mapResultsToEvidenceColumnTypes = function (fields) {
 };
 
 const buildConfig = function (database) {
+	if (!database || typeof database !== 'object') {
+		throw new Error('Database configuration is required and must be an object');
+	}
+
 	const trust_server_certificate = database.trust_server_certificate ?? 'false';
 	const encrypt = database.encrypt ?? 'true';
-	const connection_timeout = database.connection_timeout ?? 15000;
-	const request_timeout = database.request_timeout ?? 15000;
+	const connection_timeout = database.connection_timeout ?? 30000;
+	const request_timeout = database.request_timeout ?? 30000;
+	const database_port = database.port ?? 1433;
 
 	const credentials = {
 		user: database.user,
 		server: database.server,
 		database: database.database,
 		password: database.password,
-		port: parseInt(database.port ?? 1433),
+		port: parseInt(database_port),
 		connectionTimeout: parseInt(connection_timeout),
 		requestTimeout: parseInt(request_timeout),
 		options: {
-			trustServerCertificate:
-				trust_server_certificate === 'true' || trust_server_certificate === true,
+			trustServerCertificate: trust_server_certificate === 'true' || trust_server_certificate === true,
 			encrypt: encrypt === 'true' || encrypt === true
 		}
 	};
@@ -308,7 +312,8 @@ module.exports.options = {
 		title: 'Port',
 		secret: false,
 		type: 'number',
-		required: false
+		required: false,
+		default: 1433
 	},
 	trust_server_certificate: {
 		title: 'Trust Server Certificate',
