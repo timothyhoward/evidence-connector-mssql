@@ -92,7 +92,7 @@ const buildConfig = function (database) {
 	const encrypt = database.encrypt ?? 'true';
 	const connection_timeout = database.connection_timeout ?? 30000;
 	const request_timeout = database.request_timeout ?? 30000;
-	const database_port = database.port ?? 1433;
+	const database_port = database.connection_port ?? 1433;
 
 	const credentials = {
 		user: database.user,
@@ -108,7 +108,9 @@ const buildConfig = function (database) {
 		}
 	};
 
-	if (database.authenticationType === 'azure-active-directory-default') {
+	if (database.authenticationType === 'default') {
+		return credentials;
+	} else if (database.authenticationType === 'azure-active-directory-default') {
 		credentials.authentication = {
 			type: 'azure-active-directory-default'
 		};
@@ -189,10 +191,11 @@ module.exports = runQuery;
  * @property {string} host
  * @property {string} database
  * @property {string} password
- * @property {`${number}`} port
+ * @property {`${number}`} connection_port
  * @property {`${boolean}`} trust_server_certificate
  * @property {`${boolean}`} encrypt
  * @property {`${number}`} connection_timeout
+ * @property {`${number}`} request_timeout
  */
 
 /** @type {import('@evidence-dev/db-commons').GetRunner<MsSQLOptions>} */
@@ -213,14 +216,18 @@ module.exports.testConnection = async (opts) => {
 };
 
 module.exports.options = {
-	authenticator: {
+	authenticationType: {
 		title: 'Authentication type',
 		type: 'select',
 		secret: false,
 		nest: false,
 		required: true,
-		default: 'azure-active-directory-default',
+		default: 'sqlauth',
 		options: [
+			{
+				value: 'default',
+				label: 'SQL Login'
+			},
 			{
 				value: 'azure-active-directory-default',
 				label: 'DefaultAzureCredential'
@@ -239,6 +246,20 @@ module.exports.options = {
 			}
 		],
 		children: {
+			default: {
+				user: {
+					title: 'Username',
+					secret: false,
+					type: 'string',
+					required: true
+				},
+				password: {
+					title: 'Password',
+					secret: true,
+					type: 'string',
+					required: true
+				}
+			},
 			'azure-active-directory-default': {},
 			'azure-active-directory-access-token': {
 				attoken: {
@@ -294,6 +315,17 @@ module.exports.options = {
 					required: true
 				}
 			}
+
+			// TODO: authentication types that are not supported yet:
+			// - tediousjs.github.io/tedious/api-connection.html
+			// - [ ] ntlm
+			// - [ ] azure-active-directory-msi-vm
+			// - [ ] azure-active-directory-msi-app-service
+			// - [x] default
+			// - [x] azure-active-directory-default
+			// - [x] azure-active-directory-password
+			// - [x] azure-active-directory-access-token
+			// - [x] azure-active-directory-service-principal-secret
 		}
 	},
 	server: {
@@ -308,7 +340,7 @@ module.exports.options = {
 		type: 'string',
 		required: true
 	},
-	port: {
+	connection_port: {
 		title: 'Port',
 		secret: false,
 		type: 'number',
@@ -343,4 +375,4 @@ module.exports.options = {
 		required: false,
 		description: 'Request timeout in ms'
 	}
-}
+};
