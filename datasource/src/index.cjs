@@ -147,34 +147,155 @@ const buildConfig = function (database) {
 	}
 };
 
+/**
+ * Sleep for a specified amount of time
+ * @param {number} ms - milliseconds to sleep
+ * @returns {Promise<void>}
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Executes a function with retry logic
+ * @param {Function} fn - Function to execute
+ * @param {Object} options - Retry options
+ * @param {number} options.maxRetries - Maximum number of retry attempts
+ * @param {number} options.baseDelay - Base delay between retries in ms
+ * @param {number} options.maxDelay - Maximum delay between retries in ms
+ * @param {Function} options.shouldRetry - Function to determine if error is retryable
+ * @returns {Promise<any>} - The result of the function execution
+ */
+const withRetry = async (fn, options = {}) => {
+	const {
+		maxRetries = 3,
+		baseDelay = 1000,
+		maxDelay = 10000,
+		shouldRetry = (err) => {
+			// Default retry conditions
+			const retryableErrors = [
+				'ETIMEOUT',
+				'ECONNRESET',
+				'ECONNREFUSED',
+				'ESOCKET',
+				'PROTOCOL_SEQUENCE_TIMEOUT',
+				'EALREADYCONNECTED',
+				'EALREADYCONNECTING',
+				'Failed to connect',
+				'Connection lost',
+				'Timeout',
+				'Socket hang up',
+				'Network error',
+				'Request failed',
+				'Deadlock',
+				'The connection has been lost',
+				'The server has reset the connection'
+			];
+		
+			// Check if error message is retryable
+			if (err && err.message) {
+				return retryableErrors.some(errMsg =>
+					err.message.toLowerCase().includes(errMsg.toLowerCase())
+				);
+			}
+
+			// If error is a String, check if error message is retryable
+			if (typeof err === 'string') {
+				return retryableErrors.some(errMsg =>
+					err.toLowerCase().includes(errMsg.toLowerCase())
+				);
+			}
+
+			return false;
+		}
+	} = options;
+
+	let attempts = 0;
+
+	while (true) {
+		try {
+			return await fn();
+		} catch (err) {
+			attempts++;
+
+			// If we've exceeded max retries or error is not retryable, throw error
+			if (attempts >= maxRetries || !shouldRetry(err)) {
+				throw err;
+			}
+
+			// Calculate exponential backoff with jitter
+			const delay = Math.min(
+				maxDelay,
+				baseDelay * Math.pow(2, attempts - 1) * (1 + Math.random() * 0.2)
+			);
+
+			console.warn(`Database operation failed (attempt ${attempts}/${maxRetries}). Retrying in ${Math.round(delay)}ms. Error: ${err.message || err}`);
+
+			// Wait before retrying
+			await sleep(delay);
+		}
+	}
+};
+
 /** @type {import("@evidence-dev/db-commons").RunQuery<MsSQLOptions>} */
-const runQuery = async (queryString, database = {}, batchSize = 100000) => {
+const runQuery = async (queryString, database = {}, batchSize = 100000, retryOptions = {}) => {
+	let pool;
+
 	try {
 		const config = buildConfig(database);
-		const pool = await mssql.connect(config);
+
+		// Connect to the database with retry
+		pool = await withRetry(
+			async () => mssql.connect(config),
+			retryOptions
+		);
+
+		//const pool = await mssql.connect(config);
 
 		const cleaned_string = cleanQuery(queryString);
-		const expected_count = await pool
-			.request()
-			.query(`SELECT COUNT(*) as expected_row_count FROM (${cleaned_string}) as subquery`)
-			.catch(() => null);
+
+		// Execute COUNT query with retry
+		const expected_count = await withRetry(
+			async () => pool.request().query(`SELECT COUNT(*) as expected_row_count FROM (${cleaned_string}) as subquery`),
+			retryOptions
+		).catch(() => null);
+		
 		const expected_row_count = expected_count?.recordset[0].expected_row_count;
 
-		const request = new mssql.Request();
-		request.stream = true;
-		request.query(queryString);
+		// Execute main query with retry
+		return await withRetry(async () => {
+			const request = new mssql.Request(pool);
+			request.stream = true;
 
-		const columns = await new Promise((res) => request.once('recordset', res));
+			// Create a Promise that resolves with the columns when RecordSet is emitted
+			const columnsPromise = new Promise((resolve) => {
+				request.once('recordset', resolve);
+			});
 
-		const stream = request.toReadableStream();
-		const results = await asyncIterableToBatchedAsyncGenerator(stream, batchSize, {
-			closeConnection: () => pool.close()
-		});
-		results.columnTypes = mapResultsToEvidenceColumnTypes(columns);
-		results.expectedRowCount = expected_row_count;
+			// Execute the query
+			request.query(queryString);
 
-		return results;
+			// Wait for columns to be available
+			const columns = await columnsPromise;
+
+			const stream = request.toReadableStream();
+			const results = await asyncIterableToBatchedAsyncGenerator(stream, batchSize, {
+				closeConnection: () => pool?.close()
+			});
+
+			results.columnTypes = mapResultsToEvidenceColumnTypes(columns);
+			results.expectedRowCount = expected_row_count;
+
+			return results;
+		}, retryOptions);
 	} catch (err) {
+		// Ensure pool is closed on error
+		if (pool) {
+			try {
+				await pool.close();
+			} catch (closeErr) {
+				console.error('Error closing pool after failure:', closeErr);
+			}
+		}
+
 		if (err.message) {
 			throw err.message.replace(/\n|\r/g, ' ');
 		} else {
@@ -196,6 +317,10 @@ module.exports = runQuery;
  * @property {`${boolean}`} encrypt
  * @property {`${number}`} connection_timeout
  * @property {`${number}`} request_timeout
+ * @property {Object} [retryOptions] - Options for retry functionality
+ * @property {number} [retryOptions.maxRetries] - Maximum number of retry attempts
+ * @property {number} [retryOptions.baseDelay] - Base delay between retries in ms
+ * @property {number} [retryOptions.maxDelay] - Maximum delay between retries in ms
  */
 
 /** @type {import('@evidence-dev/db-commons').GetRunner<MsSQLOptions>} */
@@ -203,16 +328,19 @@ module.exports.getRunner = async (opts) => {
 	return async (queryContent, queryPath, batchSize) => {
 		// Filter out non-sql files
 		if (!queryPath.endsWith('.sql')) return null;
-		return runQuery(queryContent, opts, batchSize);
+		return runQuery(queryContent, opts, batchSize, opts.retryOptions);
 	};
 };
 
 /** @type {import('@evidence-dev/db-commons').ConnectionTester<MsSQLOptions>} */
 module.exports.testConnection = async (opts) => {
-	return await runQuery('SELECT 1 AS TEST;', opts) //
-		.then(exhaustStream)
-		.then(() => true)
-		.catch((e) => ({ reason: e.message ?? (e.toString() || 'Invalid Credentials') }));
+	return await withRetry(
+		async () => runQuery('SELECT 1 AS TEST;', opts)
+			.then(exhaustStream)
+			.then(() => true)
+			.catch((e) => ({ reason: e.message ?? (e.toString() || 'Invalid Credentials') })),
+		opts.retryOptions
+	);
 };
 
 module.exports.options = {
@@ -374,5 +502,38 @@ module.exports.options = {
 		type: 'number',
 		required: false,
 		description: 'Request timeout in ms'
+	},
+	retryOptions: {
+		title: 'Retry Options',
+		type: 'object',
+		secret: false,
+		required: false,
+		description: 'Options for retrying after encountering errors',
+		properties: {
+			maxRetries: {
+				title: 'Maximum Retries',
+				type: 'number',
+				secret: false,
+				required: false,
+				default: 3,
+				description: 'Maximum number of retry attempts'
+			},
+			baseDelay: {
+				title: 'Base Delay',
+				type: 'number',
+				secret: false,
+				required: false,
+				default: 1000,
+				description: 'Base delay between retries in ms'
+			},
+			maxDelay: {
+				title: 'Maximum Delay',
+				type: 'number',
+				secret: false,
+				required: false,
+				default: 10000,
+				description: 'Maximum delay between retries in ms'
+			}
+		}
 	}
 };
