@@ -180,14 +180,17 @@ const withRetry = async (fn, options = {}) => {
 		'EALREADYCONNECTED',
 		'EALREADYCONNECTING',
 		'Failed to connect',
+		'connection lost',
+		'timeout',
+		'socket hang up',
+		'network error',
+		'Request failed to complete within the given time',
+		'deadlock',
 		'Connection lost',
-		'Timeout',
-		'Socket hang up',
-		'Network error',
-		'Request failed',
-		'Deadlock',
 		'The connection has been lost',
-		'The server has reset the connection'
+		'The server has reset the connection',
+		'RESOURCE_SEMAPHORE',
+		'THREADPOOL'
 	];
 	
 	const shouldRetry = (err) => {
@@ -304,27 +307,11 @@ const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 	}
 };
 
-module.exports = runQuery;
-
 /**
- * @typedef {Object} MsSQLOptions
- * @property {string} user
- * @property {string} host
- * @property {string} database
- * @property {string} password
- * @property {`${number}`} connection_port
- * @property {`${boolean}`} trust_server_certificate
- * @property {`${boolean}`} encrypt
- * @property {`${number}`} connection_timeout
- * @property {`${number}`} request_timeout
- * @property {Object} [retryOptions] - Options for retry functionality
- * @property {number} [retryOptions.maxRetries] - Maximum number of retry attempts
- * @property {number} [retryOptions.baseDelay] - Base delay between retries in ms
- * @property {number} [retryOptions.maxDelay] - Maximum delay between retries in ms
+ * Get a runner function that processes SQL files
+ * @type {import('@evidence-dev/db-commons').GetRunner<MsSQLOptions>}
  */
-
-/** @type {import('@evidence-dev/db-commons').GetRunner<MsSQLOptions>} */
-module.exports.getRunner = async (opts) => {
+export const getRunner = async (opts) => {
 	return async (queryContent, queryPath, batchSize) => {
 		// Filter out non-sql files
 		if (!queryPath.endsWith('.sql')) return null;
@@ -332,17 +319,23 @@ module.exports.getRunner = async (opts) => {
 	};
 };
 
-/** @type {import('@evidence-dev/db-commons').ProcessSource<MsSQLOptions>} */
-module.exports.processSource = async function (sourceConfig, queryContent, queryPath) {
+/**
+ * Process a SQL query source file
+ * @type {import('@evidence-dev/db-commons').ProcessSource<MsSQLOptions>}
+ */
+export const processSource = async function (options, queryContent, queryPath) {
 	// Return null for non-SQL files
 	if (!queryPath.endsWith('.sql')) return null;
 
 	// Process the SQL query through the database
-	return runQuery(queryContent, sourceConfig, sourceConfig.batchSize || 100000);
+	return runQuery(queryContent, options, options.batchSize || 100000);
 };
 
-/** @type {import('@evidence-dev/db-commons').ConnectionTester<MsSQLOptions>} */
-module.exports.testConnection = async (opts) => {
+/**
+ * Test the database connection
+ * @type {import('@evidence-dev/db-commons').ConnectionTester<MsSQLOptions>}
+ */
+export const testConnection = async (opts) => {
 	const retryOptions = opts.retryOptions || {};
 	
 	return await withRetry(
@@ -354,7 +347,11 @@ module.exports.testConnection = async (opts) => {
 	);
 };
 
-module.exports.options = {
+/**
+ * Configuration options for the Evidence.dev UI
+ * @see https://docs.evidence.dev/plugins/create-source-plugin/#options-specification
+ */
+export const options = {
 	authenticationType: {
 		title: 'Authentication type',
 		type: 'select',
@@ -544,3 +541,6 @@ module.exports.options = {
 		}
 	}
 };
+
+// Also export the runQuery function directly
+export default runQuery;
