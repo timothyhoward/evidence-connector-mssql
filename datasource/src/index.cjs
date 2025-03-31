@@ -8,6 +8,42 @@ const {
 const mssql = require('mssql');
 
 /**
+ * Retry an async function with exponential backoff
+ * @param {Function} fn - The async function to retry
+ * @param {Object} options - Retry options
+ * @param {number} options.retries - Max number of retries (default: 3)
+ * @param {number} options.delay - Initial delay in ms (default: 1000)
+ * @param {number} options.backoffFactor - Multiplier for exponential backoff (default: 2)
+ * @param {string[]} options.retryableErrors - Error messages or codes to retry on
+ * @returns {Promise<any>} - Result of the function
+ */
+async function retry(fn, { retries = 3, delay = 1000, backoffFactor = 2, retryableErrors = [] } = {}) {
+	let lastError;
+	for (let attempt = 1; attempt <= retries + 1; attempt++) {
+		try {
+			return await fn();
+		} catch (err) {
+			lastError = err;
+			const errorMessage = err.message || err.toString();
+
+			// Check if the error is retryable
+			const isRetryable = retryableErrors.some(retryError =>
+				errorMessage.includes(retryError)
+			);
+
+			if (!isRetryable || attempt === retries + 1) {
+				throw lastError; // No more retries or non-retryable error
+			}
+
+			// Calculate delay with exponential backoff
+			const waitTime = delay * Math.pow(backoffFactor, attempt - 1);
+			console.log(`Attempt ${attempt} failed: ${errorMessage}. Retrying in ${waitTime}ms...`);
+			await new Promise(resolve => setTimeout(resolve, waitTime));
+		}
+	}
+}
+
+/**
  *
  * @param {(() => mssql.ISqlType) | mssql.ISqlType} data_type
  * @param {undefined} defaultType
@@ -147,11 +183,33 @@ const buildConfig = function (database) {
 	}
 };
 
+let poolPromise = null;
+
+const getPool = async (config) => {
+	if (!poolPromise) {
+		poolPromise = mssql.connect(config).catch(err => {
+			poolPromise = null; // Reset on failure
+			throw err;
+		});
+	}
+	return poolPromise;
+};
+
 /** @type {import("@evidence-dev/db-commons").RunQuery<MsSQLOptions>} */
 const runQuery = async (queryString, database = {}, batchSize = 100000) => {
-	try {
+	// Define retryable MSSQL error messages or codes
+	const retryableErrors = [
+		'ETIMEOUT',	// Connection timeout
+		'ECONNREFUSED', // Connection refused
+		'RequestError: Timeout', // Query timeout
+		'A network-related or instance-specific error occurred', // General network error
+		'Connection lost', // Connection dropped
+		'Failed to connect' // Connection timing or network error
+	];
+
+	const queryExecution = async () => {
 		const config = buildConfig(database);
-		const pool = await mssql.connect(config);
+		const pool = await getPool(config); // Reuse pool
 
 		const cleaned_string = cleanQuery(queryString);
 		const expected_count = await pool
@@ -160,20 +218,26 @@ const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 			.catch(() => null);
 		const expected_row_count = expected_count?.recordset[0].expected_row_count;
 
-		const request = new mssql.Request();
+		const request = new mssql.Request(pool);
 		request.stream = true;
 		request.query(queryString);
 
 		const columns = await new Promise((res) => request.once('recordset', res));
-
 		const stream = request.toReadableStream();
-		const results = await asyncIterableToBatchedAsyncGenerator(stream, batchSize, {
-			closeConnection: () => pool.close()
-		});
+		const results = await asyncIterableToBatchedAsyncGenerator(stream, batchSize);
 		results.columnTypes = mapResultsToEvidenceColumnTypes(columns);
 		results.expectedRowCount = expected_row_count;
 
 		return results;
+	};
+
+	try {
+		return await retry(queryExecution, {
+			retries: 3,			// Try 3 times (total of 4 attempts)
+			delay: 1000,		// Start with 1 second delay
+			backoffFactor: 2,	// Exponential backoff: 1s, 2s, 4s
+			retryableErrors		// Only retry on these errors
+		});
 	} catch (err) {
 		if (err.message) {
 			throw err.message.replace(/\n|\r/g, ' ');
@@ -196,11 +260,13 @@ module.exports = runQuery;
  * @property {`${boolean}`} encrypt
  * @property {`${number}`} connection_timeout
  * @property {`${number}`} request_timeout
+ * @property {`${number}`} batch_size
  */
 
 /** @type {import('@evidence-dev/db-commons').GetRunner<MsSQLOptions>} */
 module.exports.getRunner = async (opts) => {
-	return async (queryContent, queryPath, batchSize) => {
+	const batchSize = opts.batch_size || 10000;
+	return async (queryContent, queryPath) => {
 		// Filter out non-sql files
 		if (!queryPath.endsWith('.sql')) return null;
 		return runQuery(queryContent, opts, batchSize);
@@ -226,23 +292,23 @@ module.exports.options = {
 		options: [
 			{
 				value: 'default',
-				label: 'SQL Login'
+				label: 'SQL Server Password Authentication'
 			},
 			{
 				value: 'azure-active-directory-default',
-				label: 'DefaultAzureCredential'
+				label: 'Entra AD Automatic'
 			},
 			{
 				value: 'azure-active-directory-access-token',
-				label: 'Access token'
+				label: 'Entra AD Access Token'
 			},
 			{
 				value: 'azure-active-directory-password',
-				label: 'Entra ID User/Password'
+				label: 'Entra AD Password Authentication'
 			},
 			{
 				value: 'azure-active-directory-service-principal-secret',
-				label: 'Service Principal Secret'
+				label: 'Entra AD Service Principal Secret'
 			}
 		],
 		children: {
@@ -351,28 +417,40 @@ module.exports.options = {
 		title: 'Trust Server Certificate',
 		secret: false,
 		type: 'boolean',
-		description: 'Should be true for local dev / self-signed certificates',
-		default: false
+		description: 'Toggle server certificate trust (default: true)',
+		default: true
 	},
 	encrypt: {
 		title: 'Encrypt',
 		secret: false,
 		type: 'boolean',
-		default: false,
-		description: 'Should be true when using azure'
+		default: true,
+		description: 'Toggle database connection encryption (default: true)'
 	},
 	connection_timeout: {
 		title: 'Connection Timeout',
 		secret: false,
 		type: 'number',
 		required: false,
-		description: 'Connection timeout in ms'
+		description: 'Connection timeout in milliseconds (ms)'
 	},
 	request_timeout: {
 		title: 'Request Timeout',
 		secret: false,
 		type: 'number',
 		required: false,
-		description: 'Request timeout in ms'
+		description: 'Request timeout in milliseconds (ms)'
+	},
+	batch_size: {
+		title: 'Batch Size',
+		secret: false,
+		type: 'number',
+		required: false,
+		default: 10000,
+		description: 'Number of rows to process per database transaction'
 	}
 };
+
+process.on('exit', () => {
+	if (poolPromise) poolPromise.then(pool => pool.close());
+});
