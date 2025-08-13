@@ -23,6 +23,17 @@ async function retry(fn, { retries = 3, delay = 1000, backoffFactor = 2, retryab
 		try {
 			return await fn();
 		} catch (err) {
+			// Normalise error
+			if (!(err instanceof Error)) {
+				if (typeof err === 'string') {
+					err = new Error(err);
+				} else if (err && typeof err.toString === 'function') {
+					err = new Error(err.toString());
+				} else {
+					err = new Error('Unknown error');
+				}
+			}
+
 			lastError = err;
 			const errorMessage = err.message || err.toString();
 
@@ -239,11 +250,12 @@ const runQuery = async (queryString, database = {}, batchSize = 100000) => {
 			retryableErrors		// Only retry on these errors
 		});
 	} catch (err) {
-		if (err.message) {
-			throw err.message.replace(/\n|\r/g, ' ');
-		} else {
-			throw err.replace(/\n|\r/g, ' ');
-		}
+		// Normalise error before replace
+		const errStr = (typeof err === 'string')
+			? err
+			: (err?.message ?? err?.toString?.() ?? 'Unknown error');
+		
+		throw errStr.replace(/\n|\r/g, ' ');
 	}
 };
 
